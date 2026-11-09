@@ -29,3 +29,25 @@ Sources:
 
 ## Removal and updates
 Complete first-install acceptance before implementing update/removal orchestration. Use the native lifecycle, no custom updater. Preserve project settings and business data on uninstall; remove only proven owned registration/package artifacts. No uninstallation command exists in this preparation helper.
+
+## Full pilot workflow 0.2.0 — supersedes MVP-only outcome above
+The helpers now support bundle verification/project installation; SKILL.md orchestrates native interactive SSH and the human provisioning/reload pauses. The earlier MVP limitations are historical, not the current stopping point. No custom updater or plugin transport is implemented.
+
+Codex project standalone discovery `.agents/skills` is documented at https://learn.chatgpt.com/docs/build-skills.md (Frost official-doc fetch 2026-11-09). Actual desktop discovery is still an operator acceptance gate. Preserve the previously successful user-wide bootstrap location; do not silently migrate legacy `~/.codex/skills`.
+
+### Provisioning receipt (public JSON, transferred through authenticated Frost conversation)
+```
+{"schemaVersion":1,"type":"hodl.deploy-key.receipt","customer":"sivka","repository":"tomih/hodl-client-sivka","fingerprint":"SHA256:<actual-public-key-fingerprint>","scope":"read-only","approved":true,"keyId":12345}
+```
+Frost attests explicit requester approval and the GitHub key's read-only setting. A local JSON alone does not authenticate Frost; the local agent must confirm its conversational provenance. For this pilot, approved bundle version is 0.1.0 with ebonitete 0.1.1. Check bundle manifest against authenticated release handoff/checksum as well as its internal inventory: self-consistent hashes alone are not publisher authentication.
+
+### Native SSH read
+Use native Git's per-command SSH override with the new absolute IdentityFile and `IdentitiesOnly=yes`; quote appropriately for the detected shell, including Windows paths. Verify no unrelated identity/certificate is offered (use an isolated per-command config if needed). Normal host trust: ask operator on unknown/mismatched host key, do not use StrictHostKeyChecking=no. `git ls-remote` must target `git@github.com:tomih/hodl-client-sivka.git`. Clone the same repo into a fresh temporary directory with that same identity. Private key must never be opened by the agent. An unlocked native ssh-agent may be needed for passphrase prompts; let the user control unlock.
+
+### Pilot adapter
+```
+python3 <bootstrap>/scripts/install.py --bundle <clone-root> --receipt <receipt.json> --public-key <identity.pub> --project <exact-project> --customer sivka --repository tomih/hodl-client-sivka
+```
+Python command may be `python`, `python3`, or `py -3` on Windows. The adapter intentionally accepts only the current pinned ebonitete pilot; no arbitrary manifest execution. Refuses existing target, symlinked state/target, mismatched identity/receipt and changed file inventory. No network, SSH generation, registration claim or install-state acceptance write. If interrupted during copying, inspect/remove only the proven newly created target before retry. Record state only after desktop evidence. Preserve all existing settings. Exclude `.hodl` from project Git with operator visibility.
+
+Frost must re-read the created GitHub key and verify `read_only=true`; keyId is its positive GitHub API id. Current Hodl authorization covers the real pilot key once Hodl transfers its public request into Frost’s chat; do not ask for another blanket approval.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local bootstrap preparation only: never generates keys or installs plugins."""
+"""Preparation and canonical QR request helpers; full orchestration is in SKILL.md."""
 import argparse
 import base64
 import hashlib
@@ -105,8 +105,15 @@ def request(args):
         fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, 'wb') as f:
-                subprocess.run(['qrencode', '-t', 'PNG', '-l', 'M', '-s', '8', '-o', '-'],
-                               input=payload.encode(), stdout=f, check=True)
+                if shutil.which('qrencode'):
+                    subprocess.run(['qrencode', '-t', 'PNG', '-l', 'M', '-s', '8', '-o', '-'],
+                                   input=payload.encode(), stdout=f, check=True)
+                else:
+                    try:
+                        import qrcode
+                    except ImportError:
+                        raise ValueError('No local QR backend. Omit --qr, serialize request compactly, and let the local agent choose an available offline encoder; guide user if installation is needed.')
+                    qrcode.make(payload).save(f, format='PNG')
         except Exception:
             output.unlink(missing_ok=True)
             raise
