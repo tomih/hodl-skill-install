@@ -1,0 +1,8 @@
+{
+  "name": "hodl-skill-install",
+  "version": "0.1.0",
+  "description": "Local Hodl onboarding preparation and public-key QR handoff.",
+  "author": {
+    "name": "Hodl Advisory"
+  }
+}
