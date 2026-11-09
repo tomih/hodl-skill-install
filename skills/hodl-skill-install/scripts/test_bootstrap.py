@@ -33,6 +33,25 @@ class BootstrapTests(unittest.TestCase):
             a.customer = 'other'
             with self.assertRaises(ValueError): b.prepare(a)
 
+    def test_missing_identity_does_not_guess_from_folder(self):
+        with tempfile.TemporaryDirectory(prefix='codex-test-sivka-') as tmp:
+            a = Namespace(project=tmp, customer=None, runtime='codex', repository=None, write=False)
+            with patch('builtins.input', return_value='demo') as prompt:
+                result = b.prepare(a)
+            prompt.assert_called_once()
+            self.assertEqual(result['project']['customer'], 'demo')
+            self.assertIsNone(result['project']['repository'])
+
+    def test_copied_identity_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / '.hodl').mkdir()
+            (root / '.hodl/project.json').write_text(json.dumps({'project':'/another-project', 'customer':'demo', 'runtime':'codex', 'repository':'example/hodl-client-demo'}))
+            a = Namespace(project=tmp, customer=None, runtime='codex', repository=None, write=True)
+            with self.assertRaisesRegex(ValueError, 'Stored project path'):
+                b.prepare(a)
+            self.assertFalse((root / '.hodl/install-state.json').exists())
+
     def test_ambiguous_runtime_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(b.os.environ, {}, clear=True):
             a = Namespace(project=tmp, customer='demo', runtime=None, repository=None, write=True)

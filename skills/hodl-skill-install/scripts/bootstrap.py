@@ -64,6 +64,8 @@ def public_key(path):
 def prepare(args):
     project = detect_project(args.project)
     old = read_json(project / '.hodl/project.json')
+    if old and old.get('project') != str(project):
+        raise ValueError('Stored project path does not match active project; review identity before reuse')
     customer = checked_slug(args.customer or old.get('customer') or input('Customer slug: ').strip())
     runtime = args.runtime or old.get('runtime') or detect_runtime()
     if runtime not in RUNTIMES:
@@ -86,7 +88,7 @@ def prepare(args):
             store(project, 'install-state.json', {'schemaVersion': 1, 'status': 'prepared',
                   'installed': [], 'registration': 'unverified', 'access': 'unverified'})
     return {'project': result, 'tools': {t: shutil.which(t) for t in ('git','ssh','ssh-keygen','qrencode')},
-            'next': 'Confirm repository with Frost; use existing scoped public key or user-controlled SSH setup. No installation performed.'}
+            'next': 'Confirm repository with Frost; reuse a proven scoped identity or create a dedicated no-passphrase read-only deploy key. No installation performed.'}
 
 def request(args):
     customer = checked_slug(args.customer)

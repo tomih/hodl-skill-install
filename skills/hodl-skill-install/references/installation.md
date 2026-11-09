@@ -7,7 +7,7 @@ Outcome: approved customer skills are discoverable and callable in the actual ta
 Only mutable Hodl state: `.hodl/project.json`, `.hodl/install-state.json`, `.hodl/<skillId>.json`, `.hodl/capabilities-<runtime>.json`. No nested Hodl directories. Immutable defaults stay in skills. Native discovery/settings paths stay native. Exclude `.hodl/` runtime state from Git before a real installation; do not silently rewrite project ignore rules. Private keys belong in native SSH storage outside the project.
 
 ## SSH / QR
-Use a distinct device-scoped Ed25519 identity when authorized; reuse a correctly scoped existing key where appropriate. Check both private and public target paths before invoking native `ssh-keygen` interactively; choose a new path if either exists. Never read the private file. A dedicated SSH alias/IdentityFile with IdentitiesOnly avoids modifying global defaults. Host trust and agent unlock must be established by the normal native process. Software keys are not hardware-bound.
+Use a distinct device-scoped Ed25519 identity when authorized; reuse a correctly scoped existing key where appropriate. Default to a dedicated read-only deploy key without a passphrase, created through the shell tool using `ssh-keygen -q -t ed25519 -N '' -f <absolute-path>`. This avoids customer password/unlock management; filesystem permissions protect the key. Check both private and public target paths before invoking native `ssh-keygen`; choose a new path if either exists. Never read the private file. A dedicated SSH alias/IdentityFile with IdentitiesOnly avoids modifying global defaults. Host trust and agent unlock must be established by the normal native process. Software keys are not hardware-bound.
 
 `python3 scripts/bootstrap.py prepare --customer demo --runtime codex` is a read-only preview. From the actual host, runtime can be inferred from unambiguous session markers; otherwise use known session context. `--write` only creates absent metadata. Repeated matching preparation preserves state; identity conflict stops.
 
@@ -31,22 +31,22 @@ Sources:
 Complete first-install acceptance before implementing update/removal orchestration. Use the native lifecycle, no custom updater. Preserve project settings and business data on uninstall; remove only proven owned registration/package artifacts. No uninstallation command exists in this preparation helper.
 
 ## Full pilot workflow 0.2.0 — supersedes MVP-only outcome above
-The helpers now support bundle verification/project installation; SKILL.md orchestrates native interactive SSH and the human provisioning/reload pauses. The earlier MVP limitations are historical, not the current stopping point. No custom updater or plugin transport is implemented.
+The helpers now support bundle verification/project installation; SKILL.md orchestrates native non-interactive SSH and the human provisioning/reload pauses. The earlier MVP limitations are historical, not the current stopping point. No custom updater or plugin transport is implemented.
 
 Codex project standalone discovery `.agents/skills` is documented at https://learn.chatgpt.com/docs/build-skills.md (Frost official-doc fetch 2026-11-09). Actual desktop discovery is still an operator acceptance gate. Preserve the previously successful user-wide bootstrap location; do not silently migrate legacy `~/.codex/skills`.
 
 ### Provisioning receipt (public JSON, transferred through authenticated Frost conversation)
 ```
-{"schemaVersion":1,"type":"hodl.deploy-key.receipt","customer":"sivka","repository":"tomih/hodl-client-sivka","fingerprint":"SHA256:<actual-public-key-fingerprint>","scope":"read-only","approved":true,"keyId":12345}
+{"schemaVersion":1,"type":"hodl.deploy-key.receipt","customer":"<confirmed-customer>","repository":"<confirmed-owner>/hodl-client-<confirmed-customer>","fingerprint":"SHA256:<actual-public-key-fingerprint>","scope":"read-only","approved":true,"keyId":12345}
 ```
-Frost attests explicit requester approval and the GitHub key's read-only setting. A local JSON alone does not authenticate Frost; the local agent must confirm its conversational provenance. For this pilot, approved bundle version is 0.1.0 with ebonitete 0.1.1. Check bundle manifest against authenticated release handoff/checksum as well as its internal inventory: self-consistent hashes alone are not publisher authentication.
+Frost attests explicit requester approval and the GitHub key's read-only setting. A local JSON alone does not authenticate Frost; the local agent must confirm its conversational provenance. Resolve approved bundle/version from the authenticated handoff for the confirmed customer, never these documentation examples. Check bundle manifest against authenticated release handoff/checksum as well as its internal inventory: self-consistent hashes alone are not publisher authentication.
 
 ### Native SSH read
-Use native Git's per-command SSH override with the new absolute IdentityFile and `IdentitiesOnly=yes`; quote appropriately for the detected shell, including Windows paths. Verify no unrelated identity/certificate is offered (use an isolated per-command config if needed). Normal host trust: ask operator on unknown/mismatched host key, do not use StrictHostKeyChecking=no. `git ls-remote` must target `git@github.com:tomih/hodl-client-sivka.git`. Clone the same repo into a fresh temporary directory with that same identity. Private key must never be opened by the agent. An unlocked native ssh-agent may be needed for passphrase prompts; let the user control unlock.
+Use native Git's per-command SSH override with the new absolute IdentityFile and `IdentitiesOnly=yes`; quote appropriately for the detected shell, including Windows paths. Verify no unrelated identity/certificate is offered (use an isolated per-command config if needed). Normal host trust: ask operator on unknown/mismatched host key, do not use StrictHostKeyChecking=no. `git ls-remote` must target `git@github.com:<confirmed-owner>/hodl-client-<confirmed-customer>.git`. Clone the same repo into a fresh temporary directory with that same identity. Private key must never be opened by the agent. An unlocked native ssh-agent may be needed for passphrase prompts; let the user control unlock.
 
 ### Pilot adapter
 ```
-python3 <bootstrap>/scripts/install.py --bundle <clone-root> --receipt <receipt.json> --public-key <identity.pub> --project <exact-project> --customer sivka --repository tomih/hodl-client-sivka
+python3 <bootstrap>/scripts/install.py --bundle <clone-root> --receipt <receipt.json> --public-key <identity.pub> --project <exact-project> --customer <confirmed-customer> --repository <confirmed-owner>/hodl-client-<confirmed-customer>
 ```
 Python command may be `python`, `python3`, or `py -3` on Windows. The adapter intentionally accepts only the current pinned ebonitete pilot; no arbitrary manifest execution. Refuses existing target, symlinked state/target, mismatched identity/receipt and changed file inventory. No network, SSH generation, registration claim or install-state acceptance write. If interrupted during copying, inspect/remove only the proven newly created target before retry. Record state only after desktop evidence. Preserve all existing settings. Exclude `.hodl` from project Git with operator visibility.
 
