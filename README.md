@@ -6,7 +6,9 @@ This MVP detects a project/runtime, previews or creates flat `.hodl` metadata,
 and creates a versioned public-key request for Hodl to forward to Frost.
 It does not create SSH keys, contact Frost, provision customer repositories,
 or install/update customer plugins. Python 3 is required; PNG generation also
-requires `qrencode`. Private keys must remain outside this repository.
+requires `qrencode` (macOS: `brew install qrencode`). The QR integration test
+is explicitly skipped when `qrencode` or `ssh-keygen` is unavailable; a skip is
+not QR acceptance. Private keys must remain outside this repository.
 
 ## Verify without changing a customer project
 

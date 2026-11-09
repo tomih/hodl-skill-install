@@ -16,7 +16,7 @@ spec.loader.exec_module(b)
 class BootstrapTests(unittest.TestCase):
     def test_prepare_isolated_idempotent_and_flat(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             (root / '.git').mkdir()
             sub = root / 'src'
             sub.mkdir()
@@ -39,6 +39,8 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaises(ValueError): b.prepare(a)
             self.assertFalse((Path(tmp) / '.hodl').exists())
 
+    @unittest.skipUnless(shutil.which("qrencode") and shutil.which("ssh-keygen"),
+                         "QR integration requires qrencode and ssh-keygen")
     def test_request_and_qr_with_synthetic_public_fixture(self):
         # A deterministic public blob, not a generated keypair; no private key exists.
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,7 +65,7 @@ class BootstrapTests(unittest.TestCase):
 
     def test_symlink_state_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             (root / 'elsewhere').mkdir()
             (root / '.hodl').symlink_to(root / 'elsewhere', target_is_directory=True)
             with self.assertRaises(ValueError): b.store(root, 'project.json', {})
