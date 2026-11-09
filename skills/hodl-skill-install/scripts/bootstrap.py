@@ -4,6 +4,9 @@ import argparse
 import base64
 import hashlib
 import json
+import importlib.util
+import platform
+import tempfile
 import os
 from pathlib import Path
 import re
@@ -21,7 +24,10 @@ def checked_slug(value):
     return value
 
 def detect_project(start):
-    start = Path(start).resolve()
+    explicit = start not in (None, '.')
+    start = Path(start or '.').resolve()
+    if explicit:
+        return start
     for p in (start, *start.parents):
         if (p / '.hodl/project.json').is_file() or (p / '.git').exists():
             return p
@@ -61,13 +67,65 @@ def public_key(path):
     fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip('=')
     return ' '.join(parts[:2]), fingerprint
 
+def preflight(args):
+    project = detect_project(args.project)
+    observed = detect_runtime()
+    runtime = args.runtime or observed
+    tools = {name: shutil.which(name) for name in ('git', 'ssh', 'ssh-keygen', 'qrencode')}
+    blockers = []
+    if args.runtime and observed and args.runtime != observed:
+        blockers.append('Explicit runtime conflicts with environment evidence')
+    if sys.version_info < (3, 9):
+        blockers.append('Python 3.9 or newer required')
+    if runtime not in RUNTIMES:
+        blockers.append('Actual target runtime not established')
+    blockers.extend('Missing required tool: ' + name for name in ('git', 'ssh', 'ssh-keygen') if not tools[name])
+    versions = {}
+    for name, flag in (('git', '--version'), ('ssh', '-V')):
+        if tools[name]:
+            try:
+                result = subprocess.run([tools[name], flag], capture_output=True, text=True, timeout=5, check=True)
+                versions[name] = (result.stdout or result.stderr).strip().splitlines()[0]
+            except (OSError, subprocess.SubprocessError, IndexError) as e:
+                blockers.append('Required tool cannot run: ' + name + ' (' + str(e) + ')')
+    writable = False
+    try:
+        with tempfile.TemporaryFile(dir=project) as f:
+            f.write(b'hodl-preflight')
+            f.flush()
+        writable = True
+    except OSError as e:
+        blockers.append('Project write probe failed: ' + str(e))
+    skill_root = Path(__file__).resolve().parent.parent
+    for rel in ('SKILL.md', 'references/installation.md', 'scripts/install.py'):
+        try:
+            (skill_root / rel).read_text()
+        except OSError:
+            blockers.append('Unreadable bootstrap resource: ' + rel)
+    return {'status': 'blocked' if blockers else 'ready',
+            'os': platform.system(), 'architecture': platform.machine(),
+            'python': platform.python_version(), 'runtime': runtime,
+            'observedRuntime': observed, 'claudeCodeEntrypoint': os.environ.get('CLAUDE_CODE_ENTRYPOINT'),
+            'appVersion': None, 'runtimeEvidence': 'explicit caller context' if args.runtime else 'environment marker',
+            'project': str(project), 'projectWritable': writable, 'tools': tools, 'toolVersions': versions,
+            'qrBackend': 'qrencode' if tools['qrencode'] else ('python-qrcode' if importlib.util.find_spec('qrcode') else 'missing; local QR backend needed before handoff'),
+            'blockers': blockers, 'notChecked': ['network/SSH authorization', 'browser/login/downloads', 'PDF readers (optional, task-specific)']}
+
+
 def prepare(args):
     project = detect_project(args.project)
+    if (project / '.hodl').is_symlink() or (project / '.hodl/project.json').is_symlink():
+        raise ValueError('Symlinked project state')
     old = read_json(project / '.hodl/project.json')
     if old and old.get('project') != str(project):
         raise ValueError('Stored project path does not match active project; review identity before reuse')
-    customer = checked_slug(args.customer or old.get('customer') or input('Customer slug: ').strip())
-    runtime = args.runtime or old.get('runtime') or detect_runtime()
+    customer_value = args.customer or old.get('customer')
+    if not customer_value:
+        raise ValueError('Customer missing; ask in chat and pass --customer')
+    customer = checked_slug(customer_value)
+    runtime = args.runtime or detect_runtime()
+    if args.runtime and detect_runtime() and args.runtime != detect_runtime():
+        raise ValueError('Explicit runtime conflicts with environment evidence')
     if runtime not in RUNTIMES:
         raise ValueError('Active runtime ambiguous; specify --runtime codex or claude-code (not generic Claude chat/Cowork)')
     repo = old.get('repository')
@@ -79,9 +137,11 @@ def prepare(args):
         repo = args.repository
     result = {'schemaVersion': 1, 'customer': customer, 'repository': repo,
               'runtime': runtime, 'project': str(project)}
-    if old and any(old.get(k) != result[k] for k in ('customer','runtime','repository')):
+    if old and any(old.get(k) != result[k] for k in ('customer','repository')):
         raise ValueError('Project identity conflict; review existing configuration first')
     if args.write:
+        if not repo:
+            raise ValueError('Exact customer repository required before writing project state')
         if not old:
             store(project, 'project.json', result)
         if not (project / '.hodl/install-state.json').exists():
@@ -124,6 +184,9 @@ def request(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     commands = p.add_subparsers(dest='command', required=True)
+    check = commands.add_parser('preflight', help='Local OS/runtime/tool/resource/write checks, no network or persistent changes')
+    check.add_argument('--project', default='.')
+    check.add_argument('--runtime', choices=RUNTIMES)
     prep = commands.add_parser('prepare', help='Detect project and runtime; default is read-only')
     prep.add_argument('--project', default='.')
     prep.add_argument('--customer')
@@ -138,7 +201,9 @@ def main():
     req.add_argument('--qr', help='New PNG output path; use a private temporary delivery directory')
     args = p.parse_args()
     try:
-        print(json.dumps(prepare(args) if args.command == 'prepare' else request(args), indent=2))
+        handlers = {'preflight': preflight, 'prepare': prepare, 'request': request}
+        result = handlers[args.command](args)
+        print(json.dumps(result, ensure_ascii=True, separators=(',', ':')) if args.command == 'request' else json.dumps(result, indent=2))
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         p.exit(1, str(exc) + '\n')
 

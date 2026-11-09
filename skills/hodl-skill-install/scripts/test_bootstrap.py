@@ -21,7 +21,8 @@ class BootstrapTests(unittest.TestCase):
             sub = root / 'src'
             sub.mkdir()
             a = Namespace(project=str(sub), customer='demo', runtime='codex', repository='example/hodl-client-demo', write=False)
-            self.assertEqual(b.prepare(a)['project']['project'], str(root))
+            self.assertEqual(b.prepare(a)['project']['project'], str(sub))
+            root = sub
             self.assertFalse((root / '.hodl').exists())
             a.write = True
             b.prepare(a)
@@ -36,11 +37,23 @@ class BootstrapTests(unittest.TestCase):
     def test_missing_identity_does_not_guess_from_folder(self):
         with tempfile.TemporaryDirectory(prefix='codex-test-sivka-') as tmp:
             a = Namespace(project=tmp, customer=None, runtime='codex', repository=None, write=False)
-            with patch('builtins.input', return_value='demo') as prompt:
-                result = b.prepare(a)
-            prompt.assert_called_once()
-            self.assertEqual(result['project']['customer'], 'demo')
-            self.assertIsNone(result['project']['repository'])
+            with self.assertRaisesRegex(ValueError, 'Customer missing'):
+                b.prepare(a)
+
+    def test_cross_runtime_same_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Namespace(project=tmp, customer='demo', runtime='codex', repository='example/hodl-client-demo', write=True)
+            b.prepare(a)
+            before = (Path(tmp)/'.hodl/project.json').read_bytes()
+            a.runtime = 'claude-code'
+            self.assertEqual(b.prepare(a)['project']['runtime'], 'claude-code')
+            self.assertEqual((Path(tmp)/'.hodl/project.json').read_bytes(), before)
+
+    def test_runtime_conflict_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(b.os.environ, {'CLAUDECODE':'1'}, clear=True):
+            result = b.preflight(Namespace(project=tmp, runtime='codex'))
+            self.assertEqual(result['status'], 'blocked')
+            self.assertEqual(result['observedRuntime'], 'claude-code')
 
     def test_copied_identity_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -51,6 +64,27 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Stored project path'):
                 b.prepare(a)
             self.assertFalse((root / '.hodl/install-state.json').exists())
+
+    def test_preflight_reports_missing_required_tools_without_state(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(b.shutil, 'which', return_value=None):
+            result = b.preflight(Namespace(project=tmp, runtime='codex'))
+            self.assertEqual(result['status'], 'blocked')
+            self.assertTrue(result['projectWritable'])
+            self.assertTrue(any('git' in message for message in result['blockers']))
+            self.assertFalse((Path(tmp)/'.hodl').exists())
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_preflight_broken_executable_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(b.shutil, 'which', return_value='/fake/tool'), patch.object(b.subprocess, 'run', side_effect=OSError('not executable')):
+            result = b.preflight(Namespace(project=tmp, runtime='claude-code'))
+            self.assertEqual(result['status'], 'blocked')
+            self.assertTrue(any('cannot run' in message for message in result['blockers']))
+
+    def test_prepare_does_not_persist_unknown_repository(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Namespace(project=tmp, customer='demo', runtime='codex', repository=None, write=True)
+            with self.assertRaisesRegex(ValueError, 'repository required'): b.prepare(a)
+            self.assertFalse((Path(tmp)/'.hodl').exists())
 
     def test_ambiguous_runtime_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(b.os.environ, {}, clear=True):
