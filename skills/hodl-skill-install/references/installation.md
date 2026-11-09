@@ -13,7 +13,7 @@ Use a distinct device-scoped Ed25519 identity when authorized; reuse a correctly
 
 `python3 scripts/bootstrap.py request --customer demo --repository OWNER/hodl-client-demo --public-key /path/to/key.pub --qr /private/tmp/request.png` emits JSON and a PNG encoding that JSON. Ed25519 only in this MVP. No network or message is sent. The QR is data, not proof of requester authorization. Frost checks explicit authenticated requester approval, exact target repo, read-only deploy-key scope and duplicates; acknowledges the same fingerprint. A duplicate key on another repo is not permission to broaden access. Public key needs no client-string encryption.
 
-After acknowledgment use native Git/OpenSSH to read the exact repo; don't test other customers' repos. Read access alone cannot prove GitHub write permission is disabled: Frost's provisioning receipt must attest read-only scope. Record these as separate observations. Do not probe writes to prove read-only access.
+After one-way QR handoff use bounded native Git/OpenSSH readiness checks to read the exact repo; don't test other customers' repos. Read access alone cannot prove GitHub write permission is disabled: Frost's provisioning receipt must attest read-only scope. Record these as separate observations. Do not probe writes to prove read-only access.
 
 ## Native client evidence (documentation checked 2026-11-09)
 
@@ -35,18 +35,18 @@ The helpers now support bundle verification/project installation; SKILL.md orche
 
 Codex project standalone discovery `.agents/skills` is documented at https://learn.chatgpt.com/docs/build-skills.md (Frost official-doc fetch 2026-11-09). Actual desktop discovery is still an operator acceptance gate. Preserve the previously successful user-wide bootstrap location; do not silently migrate legacy `~/.codex/skills`.
 
-### Provisioning receipt (public JSON, transferred through authenticated Frost conversation)
+### Provisioning receipt (retrieved automatically from the exact private customer repository)
 ```
-{"schemaVersion":1,"type":"hodl.deploy-key.receipt","customer":"<confirmed-customer>","repository":"<confirmed-owner>/hodl-client-<confirmed-customer>","fingerprint":"SHA256:<actual-public-key-fingerprint>","scope":"read-only","approved":true,"keyId":12345}
+{"schemaVersion":1,"type":"hodl.deploy-key.receipt","customer":"<confirmed-customer>","repository":"<confirmed-owner>/hodl-client-<confirmed-customer>","fingerprint":"SHA256:<actual-public-key-fingerprint>","scope":"read-only","approved":true,"keyId":12345,"manifestSha256":"<approved-manifest-sha256>"}
 ```
-Frost attests explicit requester approval and the GitHub key's read-only setting. A local JSON alone does not authenticate Frost; the local agent must confirm its conversational provenance. Resolve approved bundle/version from the authenticated handoff for the confirmed customer, never these documentation examples. Check bundle manifest against authenticated release handoff/checksum as well as its internal inventory: self-consistent hashes alone are not publisher authentication.
+Frost attests requester approval and re-reads GitHub `read_only=true` before committing the receipt to `provisioning/receipts/<hex-SHA256-public-key-blob>.json`. The filename is the lowercase hex digest of the decoded OpenSSH public-key blob (not of the public-key text). The receipt binds the exact approved manifest bytes via manifestSha256. Client retrieves this through native host-verified GitHub SSH using only its dedicated key and the previously confirmed exact repository; this repository is the publisher trust channel. Local access success alone does not prove read-only scope. Missing receipt is a resumable provisioning wait. No JSON travels manually back from Frost; no test writes. The adapter derives this path when --receipt is omitted. Explicit --receipt remains legacy compatibility only, not the customer flow.
 
 ### Native SSH read
 Use native Git's per-command SSH override with the new absolute IdentityFile and `IdentitiesOnly=yes`; quote appropriately for the detected shell, including Windows paths. Verify no unrelated identity/certificate is offered (use an isolated per-command config if needed). Normal host trust: ask operator on unknown/mismatched host key, do not use StrictHostKeyChecking=no. `git ls-remote` must target `git@github.com:<confirmed-owner>/hodl-client-<confirmed-customer>.git`. Clone the same repo into a fresh temporary directory with that same identity. Private key must never be opened by the agent. An unlocked native ssh-agent may be needed for passphrase prompts; let the user control unlock.
 
 ### Pilot adapter
 ```
-python3 <bootstrap>/scripts/install.py --bundle <clone-root> --receipt <receipt.json> --public-key <identity.pub> --project <exact-project> --customer <confirmed-customer> --repository <confirmed-owner>/hodl-client-<confirmed-customer>
+python3 <bootstrap>/scripts/install.py --bundle <clone-root> --public-key <identity.pub> --project <exact-project> --customer <confirmed-customer> --repository <confirmed-owner>/hodl-client-<confirmed-customer>
 ```
 Python command may be `python`, `python3`, or `py -3` on Windows. The adapter intentionally accepts only the current pinned ebonitete pilot; no arbitrary manifest execution. Refuses existing target, symlinked state/target, mismatched identity/receipt and changed file inventory. No network, SSH generation, registration claim or install-state acceptance write. If interrupted during copying, inspect/remove only the proven newly created target before retry. Record state only after desktop evidence. Preserve all existing settings. Exclude `.hodl` from project Git with operator visibility.
 

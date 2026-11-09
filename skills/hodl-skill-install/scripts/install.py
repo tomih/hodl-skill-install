@@ -3,6 +3,7 @@
 No SSH key creation, network, provisioning, user-wide fallback or updater.
 """
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -13,8 +14,18 @@ from bootstrap import public_key
 def validate(bundle, receipt, key, customer, repository):
     bundle = Path(bundle).resolve()
     m = json.loads((bundle / 'manifest.json').read_text())
-    r = json.loads(Path(receipt).read_text())
     fingerprint = public_key(key)[1]
+    repository_receipt = receipt is None
+    if repository_receipt:
+        digest = base64.b64decode(fingerprint.split(':', 1)[1] + '=').hex()
+        receipt = bundle / 'provisioning/receipts' / (digest + '.json')
+    receipt = Path(receipt)
+    if receipt.is_symlink():
+        raise ValueError('Symlinked provisioning receipt')
+    r = json.loads(receipt.read_text())
+    if repository_receipt or 'manifestSha256' in r:
+        if r.get('manifestSha256') != hashlib.sha256((bundle / 'manifest.json').read_bytes()).hexdigest():
+            raise ValueError('Provisioning receipt manifest digest mismatch')
     if type(r.get('keyId')) is not int or r['keyId'] <= 0:
         raise ValueError('Receipt requires positive GitHub keyId')
     expected = {'schemaVersion':1, 'type':'hodl.deploy-key.receipt', 'customer':customer,
@@ -56,8 +67,9 @@ def install(args):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    for name in ('bundle','receipt','public-key','project','customer','repository'):
+    for name in ('bundle','public-key','project','customer','repository'):
         p.add_argument('--'+name,required=True)
+    p.add_argument('--receipt', help='Legacy explicit receipt; default reads fingerprint-matched receipt from the authenticated customer clone')
     a=p.parse_args()
     try: print(json.dumps(install(a),indent=2))
     except (ValueError,OSError) as e: p.exit(1,str(e)+'\n')

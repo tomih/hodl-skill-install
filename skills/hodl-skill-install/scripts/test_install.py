@@ -29,6 +29,16 @@ class InstallTests(unittest.TestCase):
             (source/'extra').write_text('unexpected')
             with self.assertRaises(ValueError): i.install(a)
             (source/'extra').unlink()
+            a.receipt=None
+            with self.assertRaises(FileNotFoundError): i.install(a)
+            digest=base64.b64decode(receipt['fingerprint'].split(':',1)[1]+'=').hex()
+            automatic=bundle/'provisioning/receipts'/(digest+'.json')
+            automatic.parent.mkdir(parents=True)
+            receipt['manifestSha256']='wrong'
+            automatic.write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError, 'manifest digest'): i.install(a)
+            receipt['manifestSha256']=hashlib.sha256((bundle/'manifest.json').read_bytes()).hexdigest()
+            automatic.write_text(json.dumps(receipt))
             result=i.install(a); self.assertEqual(result['registration'],'unverified')
             with self.assertRaises(ValueError): i.install(a)
             self.assertFalse((project/'.hodl/install-state.json').exists())
