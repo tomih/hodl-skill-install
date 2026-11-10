@@ -6,9 +6,12 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import sys
+sys.dont_write_bytecode = True  # Keep immutable installed packages free of generated caches.
 import re
 import shutil
 from bootstrap import public_key
+from lifecycle import apply, read_state, digest, project_operation
 
 TARGETS = {'codex': '.agents/skills', 'claude-code': '.claude/skills'}
 SKILL_ID = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
@@ -97,8 +100,13 @@ def validate(bundle, customer, repository, runtime):
 
 
 def install(args):
+    with project_operation(Path(args.project).resolve() / ".hodl"):
+        return _install(args)
+
+
+def _install(args):
     project = Path(args.project).resolve()
-    for rel in ('.hodl', '.hodl/project.json'):
+    for rel in ('.hodl', '.hodl/project.json', '.hodl/install-state.json'):
         if (project / rel).is_symlink():
             raise ValueError('Symlinked project identity')
     identity = json.loads((project / '.hodl/project.json').read_text())
@@ -110,7 +118,23 @@ def install(args):
         raise ValueError('Project identity mismatch')
     m = validate(args.bundle, args.customer, args.repository, runtime)
     fingerprint = public_key(args.public_key)[1]
+    state_path = project / '.hodl' / ('managed-' + runtime + '.json')
+    state = read_state(state_path)
+    if state and any(state.get(k) != v for k, v in {'customer': args.customer, 'repository': args.repository, 'runtime': runtime}.items()):
+        raise ValueError('Managed state identity mismatch')
+    previous = state.get('skills', {})
+    prior_bundle = getattr(args, 'prior_bundle', None)
+    if prior_bundle:
+        prior = validate(prior_bundle, args.customer, args.repository, runtime)
+        previous = dict(previous)
+        for skill in prior['skills']:
+            sid = skill['id']
+            previous.setdefault(sid, {'version': skill['version'],
+                             'path': str(project / TARGETS[runtime] / sid),
+                             'files': {Path(p).relative_to('skills/' + sid).as_posix(): h
+                                       for p, h in prior['files'].items() if p.startswith('skills/' + sid + '/')}})
     planned = []
+    managed = {}
     # Validate EVERY destination before writing any skill, including a later conflict.
     for skill in m['skills']:
         sid = skill['id']
@@ -122,23 +146,44 @@ def install(args):
             if path.exists() and not path.is_dir():
                 raise ValueError('Non-directory target/ancestor; preserved')
         target = project / rel
-        if target.exists():
-            expected_files = {Path(p).relative_to('skills/' + sid).as_posix(): h
-                              for p, h in m['files'].items() if p.startswith('skills/' + sid + '/')}
-            if inventory(target, target) != expected_files:
-                raise ValueError('Different version or local changes installed; preserved, updates not supported')
-        planned.append((skill, target, target.exists()))
+        expected_files = {Path(p).relative_to('skills/' + sid).as_posix(): h
+                          for p, h in m['files'].items() if p.startswith('skills/' + sid + '/')}
+        current = inventory(target, target) if target.exists() else None
+        baseline = previous.get(sid, {})
+        if current is not None and current != expected_files:
+            if baseline.get('path') != str(target) or baseline.get('files') != current:
+                raise ValueError('Unmanaged version or local changes in ' + sid + '; preserved. Supply a verified prior bundle for legacy adoption')
+        same_pin = baseline.get('version') == skill['version'] and baseline.get('files') == expected_files
+        managed[sid] = {'version': skill['version'], 'path': str(target), 'files': expected_files}
+        if same_pin and baseline.get('acceptance'):
+            managed[sid]['acceptance'] = baseline['acceptance']
+        planned.append((Path(args.bundle) / skill['source'], target, current))
+    # A removed manifest skill is not silently uninstalled or forgotten.
+    for sid, record in previous.items():
+        if sid not in managed:
+            managed[sid] = record
+    manifest_digest = hashlib.sha256((Path(args.bundle) / 'manifest.json').read_bytes()).hexdigest()
+    commit = getattr(args, 'commit', None)
+    new_state = dict(state, schemaVersion=1, customer=args.customer, repository=args.repository,
+                     runtime=runtime, fingerprint=fingerprint, bundleVersion=m['bundleVersion'],
+                     manifestSha256=manifest_digest, commit=commit, skills=managed)
+    legacy_path = project / '.hodl/install-state.json'
+    legacy = read_state(legacy_path)
+    entry = legacy.setdefault('runtimes', {}).setdefault(runtime, {})
+    entry.update(status='installed' if all(r.get('acceptance') for r in managed.values()) else 'acceptance-pending',
+                 skills=managed, manifestSha256=manifest_digest, commit=commit, fingerprint=fingerprint)
+    apply(planned, state_path, new_state, {r['path']: r['files'] for r in managed.values()}, {legacy_path: legacy})
     results = []
-    for skill, target, matching in planned:
-        if not matching:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(Path(args.bundle) / skill['source'], target)
+    for skill, (source, target, old) in zip(m['skills'], planned):
+        same = old == managed[skill['id']]['files']
         results.append({'id': skill['id'], 'version': skill['version'], 'path': str(target),
-                        'status': 'files-already-matching' if matching else 'files-installed'})
-    result = {'status': 'files-already-matching' if all(x[2] for x in planned) else 'files-installed',
+                        'status': 'files-already-matching' if same else ('files-updated' if old else 'files-installed'),
+                        'acceptance': 'complete' if managed[skill['id']].get('acceptance') else 'pending'})
+    result = {'status': 'files-already-matching' if all(x['status'] == 'files-already-matching' for x in results)
+              else ('files-updated' if any(old is not None for _, _, old in planned) else 'files-installed'),
               'bundleVersion': m['bundleVersion'], 'skills': results, 'fingerprint': fingerprint,
-              'registration': 'unverified',
-              'next': 'Invoke each verified skill harmlessly in the actual app; reload only if discovery needs it'}
+              'manifestSha256': manifest_digest, 'commit': commit, 'registration': 'unverified',
+              'next': 'Resume this installer to orchestrate harmless discovery/preflight for pending skills only'}
     if len(results) == 1:
         result['path'] = results[0]['path']
     return result
@@ -149,6 +194,8 @@ def main():
     for name in ('bundle', 'public-key', 'project', 'customer', 'repository'):
         p.add_argument('--' + name, required=True)
     p.add_argument('--runtime', choices=tuple(TARGETS), required=True)
+    p.add_argument('--prior-bundle', help='Verified exact-customer prior bundle for hash-based legacy adoption')
+    p.add_argument('--commit', help='Exact retrieved Git commit, attributed transport evidence')
     a = p.parse_args()
     try:
         print(json.dumps(install(a), indent=2))

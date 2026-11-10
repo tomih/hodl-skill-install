@@ -14,9 +14,12 @@ import shutil
 import socket
 import subprocess
 import sys
+sys.dont_write_bytecode = True
+from request_token import encode
 
 SLUG = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*\Z')
 RUNTIMES = ('codex', 'claude-code')
+PUBLISHER = json.loads((Path(__file__).resolve().parent.parent / 'publisher.json').read_text())
 
 def checked_slug(value):
     if not SLUG.fullmatch(value):
@@ -59,7 +62,7 @@ def public_key(path):
     raw = Path(path).read_text().strip()
     parts = raw.split()
     if len(parts) < 2 or parts[0] != 'ssh-ed25519':
-        raise ValueError('MVP accepts only an OpenSSH Ed25519 public key, never a private key')
+        raise ValueError('Accepts only an OpenSSH Ed25519 public key, never a private key')
     blob = base64.b64decode(parts[1], validate=True)
     prefix = b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20'
     if len(blob) != 51 or not blob.startswith(prefix):
@@ -128,13 +131,19 @@ def prepare(args):
         raise ValueError('Explicit runtime conflicts with environment evidence')
     if runtime not in RUNTIMES:
         raise ValueError('Active runtime ambiguous; specify --runtime codex or claude-code (not generic Claude chat/Cowork)')
+    configured_repo = PUBLISHER['owner'] + '/' + PUBLISHER['customerRepositoryPrefix'] + customer
     repo = old.get('repository')
+    if repo and repo != configured_repo:
+        raise ValueError('Stored repository conflicts with publisher configuration; explicit publisher migration required')
     if args.repository:
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/hodl-client-' + re.escape(customer), args.repository):
             raise ValueError('Repository must be an explicit owner/hodl-client-<customer>')
         if repo and repo != args.repository:
             raise ValueError('Repository conflicts with existing project identity')
         repo = args.repository
+    repo = repo or configured_repo
+    if repo != configured_repo:
+        raise ValueError('Repository conflicts with publisher configuration; explicit publisher migration required')
     result = {'schemaVersion': 1, 'customer': customer, 'repository': repo,
               'runtime': runtime, 'project': str(project)}
     if old and any(old.get(k) != result[k] for k in ('customer','repository')):
@@ -148,19 +157,20 @@ def prepare(args):
             store(project, 'install-state.json', {'schemaVersion': 1, 'status': 'prepared',
                   'installed': [], 'registration': 'unverified', 'access': 'unverified'})
     return {'project': result, 'tools': {t: shutil.which(t) for t in ('git','ssh','ssh-keygen','qrencode')},
-            'next': 'Confirm repository with Frost; reuse a proven scoped identity or create a dedicated no-passphrase read-only deploy key. No installation performed.'}
+            'next': 'Reuse the saved identity or create a dedicated deploy key; publisher must enforce read-only scope. No installation performed.'}
 
 def request(args):
     customer = checked_slug(args.customer)
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/hodl-client-' + re.escape(customer), args.repository):
         raise ValueError('Exact owner/customer repository required')
+    if args.repository != PUBLISHER['owner'] + '/' + PUBLISHER['customerRepositoryPrefix'] + customer:
+        raise ValueError('Request repository conflicts with publisher configuration')
     key, fingerprint = public_key(args.public_key)
     result = {'schemaVersion': 1, 'type': 'hodl.deploy-key.request',
               'customer': customer, 'repository': args.repository,
               'device': args.device or socket.gethostname(), 'scope': 'read-only',
-              'publicKey': key, 'fingerprint': fingerprint,
-              'approval': 'Frost must verify explicit requester approval in the authenticated conversation'}
-    payload = json.dumps(result, ensure_ascii=True, separators=(',', ':'))
+              'publicKey': key, 'fingerprint': fingerprint}
+    payload = encode(result, customer)
     if args.qr:
         # No shell interpolation; exclusive reservation prevents overwrite.
         output = Path(args.qr)
@@ -174,12 +184,12 @@ def request(args):
                     try:
                         import qrcode
                     except ImportError:
-                        raise ValueError('No local QR backend. Omit --qr, serialize request compactly, and let the local agent choose an available offline encoder; guide user if installation is needed.')
+                        raise ValueError('No local QR backend. Omit --qr, use the token output, and let the local agent choose an available offline encoder; guide user if installation is needed.')
                     qrcode.make(payload).save(f, format='PNG')
         except Exception:
             output.unlink(missing_ok=True)
             raise
-    return result
+    return payload
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -203,7 +213,7 @@ def main():
     try:
         handlers = {'preflight': preflight, 'prepare': prepare, 'request': request}
         result = handlers[args.command](args)
-        print(json.dumps(result, ensure_ascii=True, separators=(',', ':')) if args.command == 'request' else json.dumps(result, indent=2))
+        print(result if args.command == 'request' else json.dumps(result, indent=2))
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         p.exit(1, str(exc) + '\n')
 

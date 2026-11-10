@@ -20,7 +20,7 @@ class BootstrapTests(unittest.TestCase):
             (root / '.git').mkdir()
             sub = root / 'src'
             sub.mkdir()
-            a = Namespace(project=str(sub), customer='demo', runtime='codex', repository='example/hodl-client-demo', write=False)
+            a = Namespace(project=str(sub), customer='demo', runtime='codex', repository='tomih/hodl-client-demo', write=False)
             self.assertEqual(b.prepare(a)['project']['project'], str(sub))
             root = sub
             self.assertFalse((root / '.hodl').exists())
@@ -35,7 +35,7 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaises(ValueError): b.prepare(a)
 
     def test_missing_identity_does_not_guess_from_folder(self):
-        with tempfile.TemporaryDirectory(prefix='codex-test-sivka-') as tmp:
+        with tempfile.TemporaryDirectory(prefix='unrelated-project-') as tmp:
             a = Namespace(project=tmp, customer=None, runtime='codex', repository=None, write=False)
             with self.assertRaisesRegex(ValueError, 'Customer missing'):
                 b.prepare(a)
@@ -43,7 +43,7 @@ class BootstrapTests(unittest.TestCase):
     @patch.dict(b.os.environ, {}, clear=True)
     def test_cross_runtime_same_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
-            a = Namespace(project=tmp, customer='demo', runtime='codex', repository='example/hodl-client-demo', write=True)
+            a = Namespace(project=tmp, customer='demo', runtime='codex', repository='tomih/hodl-client-demo', write=True)
             b.prepare(a)
             before = (Path(tmp)/'.hodl/project.json').read_bytes()
             a.runtime = 'claude-code'
@@ -60,7 +60,7 @@ class BootstrapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             (root / '.hodl').mkdir()
-            (root / '.hodl/project.json').write_text(json.dumps({'project':'/another-project', 'customer':'demo', 'runtime':'codex', 'repository':'example/hodl-client-demo'}))
+            (root / '.hodl/project.json').write_text(json.dumps({'project':'/another-project', 'customer':'demo', 'runtime':'codex', 'repository':'tomih/hodl-client-demo'}))
             a = Namespace(project=tmp, customer=None, runtime='codex', repository=None, write=True)
             with self.assertRaisesRegex(ValueError, 'Stored project path'):
                 b.prepare(a)
@@ -81,11 +81,22 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(result['status'], 'blocked')
             self.assertTrue(any('cannot run' in message for message in result['blockers']))
 
-    def test_prepare_does_not_persist_unknown_repository(self):
+    def test_publisher_config_supplies_owner_slug_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             a = Namespace(project=tmp, customer='demo', runtime='codex', repository=None, write=True)
-            with self.assertRaisesRegex(ValueError, 'repository required'): b.prepare(a)
-            self.assertFalse((Path(tmp)/'.hodl').exists())
+            self.assertEqual(b.prepare(a)['project']['repository'], 'tomih/hodl-client-demo')
+            self.assertTrue((Path(tmp)/'.hodl/project.json').exists())
+
+    def test_conflicting_legacy_owner_requires_migration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root/'.hodl').mkdir()
+            path=root/'.hodl/project.json'
+            path.write_text(json.dumps({'customer':'demo','repository':'other/hodl-client-demo','project':str(root)}))
+            before=path.read_bytes()
+            a = Namespace(project=tmp, customer=None, runtime='codex', repository=None, write=True)
+            with self.assertRaisesRegex(ValueError, 'migration'): b.prepare(a)
+            self.assertEqual(path.read_bytes(), before)
 
     def test_ambiguous_runtime_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(b.os.environ, {}, clear=True):
@@ -102,8 +113,10 @@ class BootstrapTests(unittest.TestCase):
             blob = b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20' + bytes(range(32))
             public.write_text('ssh-ed25519 ' + base64.b64encode(blob).decode() + ' fixture')
             qr = Path(tmp) / 'request.png'
-            a = Namespace(customer='demo', repository='example/hodl-client-demo', device='fixture', public_key=str(public), qr=str(qr))
-            result = b.request(a)
+            a = Namespace(customer='demo', repository='tomih/hodl-client-demo', device='fixture', public_key=str(public), qr=str(qr))
+            token = b.request(a)
+            from request_token import decode
+            result = decode(token, a.customer)
             self.assertEqual(result['scope'], 'read-only')
             self.assertTrue(qr.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'))
             native = subprocess.check_output(['ssh-keygen','-lf',str(public),'-E','sha256'], text=True).split()[1]
@@ -111,8 +124,9 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaises(FileExistsError): b.request(a)
             if shutil.which('zbarimg'):
                 decoded = subprocess.check_output(['zbarimg','--quiet','--raw',str(qr)], text=True)
-                self.assertEqual(json.loads(decoded), result)
-            a.repository = 'example/hodl-client-other'
+                self.assertEqual(decoded.rstrip("\n"), token)
+                self.assertEqual(decode(decoded.rstrip("\n"), a.customer), result)
+            a.repository = 'tomih/hodl-client-other'
             with self.assertRaises(ValueError): b.request(a)
             public.write_text('-----BEGIN OPENSSH PRIVATE KEY-----')
             with self.assertRaises(ValueError): b.public_key(public)

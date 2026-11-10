@@ -32,19 +32,19 @@ class InstallTests(unittest.TestCase):
         self.args.runtime = runtime
         (self.project/'.hodl/project.json').write_text(json.dumps({'customer':'demo', 'repository':self.m['repository'], 'runtime':runtime, 'project':str(self.project.resolve())}))
 
-    def test_no_receipt_required_and_matching_retry_is_noop(self):
+    def test_install_and_matching_retry_is_noop(self):
         result=i.install(self.args)
         self.assertEqual(result['status'], 'files-installed')
         self.assertEqual(result['registration'], 'unverified')
         self.assertEqual(i.install(self.args)['status'], 'files-already-matching')
-        self.assertFalse((self.project/'.hodl/install-state.json').exists())
+        self.assertEqual(json.loads((self.project/'.hodl/install-state.json').read_text())['runtimes']['codex']['status'], 'acceptance-pending')
 
     def test_claude_native_path(self):
         self.set_runtime('claude-code')
         self.assertEqual(Path(i.install(self.args)['path']), self.project/'.claude/skills/ebonitete')
         self.assertFalse((self.project/'.agents').exists())
 
-    def test_legacy_codex_bundle_without_receipt(self):
+    def test_legacy_single_runtime_manifest(self):
         self.m.pop('supportedRuntimes'); self.m['runtime']='codex'
         self.m['skills'][0].pop('destinations'); self.m['skills'][0]['destination']=i.TARGETS['codex']+'/ebonitete'
         self.m['skills'][0]['version']='0.1.1'; self.save_manifest()

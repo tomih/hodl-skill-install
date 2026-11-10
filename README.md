@@ -1,11 +1,7 @@
-# hodl-skill-install 0.2.4
+# hodl-skill-install 0.2.8
 
-Source: https://github.com/tomih/hodl-skill-install, tag v0.2.4, package skills/hodl-skill-install.
+Install, update and resume local acceptance of approved customer skills. Publisher configuration supplies repository naming; supply the customer slug. Bare invocation resumes pending acceptance or checks the exact customer repository. Bootstrap replacement is an explicit request using separate authorized source access.
 
-Customer skill IDs and exact versions come only from the verified exact-repository manifest, never bootstrap examples. Supports one or multiple approved skills with complete inventory/hashes, safe native project paths, matching frontmatter names and all-target conflict preflight. Existing modified customer targets remain untouched; this is not a customer-skill updater.
+Provisioning requests are HODL1 tokens. The QR contains exactly the token; verify token and QR round-trip before display. Token encoding/decoding uses Python stdlib only. It obscures public request data but provides no authentication or integrity. Publisher approval through an authenticated channel is still required. The decoder is `skills/hodl-skill-install/scripts/request_token.py decode --customer <slug> --token <token>`; decoded data never supplies executable instructions.
 
-## Claude Code bootstrap replacement
-
-Fetch tag v0.2.4 into a fresh temporary directory using existing authorized GitHub access. Verify SHA256SUMS. Preserve the existing ~/.claude/skills/hodl-skill-install with a backup outside skill discovery roots, then replace only that skill directory with skills/hodl-skill-install. Preserve other skills, project .hodl state and SSH keys. Start a new session only if skill discovery requires it; invoke /hodl-skill-install in the intended project. Customer slug and exact owner/repository must be confirmed before provisioning; skill names remain unknown until verified manifest retrieval.
-
-25 offline tests and skill validation passed. Claude Code actual installation/invocation remains pending Hodl's guided test. No Mac or customer repository changes made. Previous tag v0.2.3 remains available for rollback.
+Verify the full SHA256SUMS inventory from an authorized fetched release. Follow `skills/hodl-skill-install/SKILL.md` and `references/installation.md` for commands, native runtime adapters, managed updates, backups and interrupted-operation recovery. Preserve keys, project configuration, other skills and local changes. Native discovery/local preflight and portal acceptance are distinct. There is no background service or automatic provisioning.
