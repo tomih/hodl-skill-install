@@ -40,6 +40,7 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Customer missing'):
                 b.prepare(a)
 
+    @patch.dict(b.os.environ, {}, clear=True)
     def test_cross_runtime_same_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             a = Namespace(project=tmp, customer='demo', runtime='codex', repository='example/hodl-client-demo', write=True)
