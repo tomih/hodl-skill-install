@@ -18,7 +18,7 @@ sys.dont_write_bytecode = True
 from request_token import encode
 
 SLUG = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*\Z')
-RUNTIMES = ('codex', 'claude-code')
+from adapters import RUNTIMES
 PUBLISHER = json.loads((Path(__file__).resolve().parent.parent / 'publisher.json').read_text())
 
 def checked_slug(value):
@@ -91,6 +91,22 @@ def preflight(args):
                 versions[name] = (result.stdout or result.stderr).strip().splitlines()[0]
             except (OSError, subprocess.SubprocessError, IndexError) as e:
                 blockers.append('Required tool cannot run: ' + name + ' (' + str(e) + ')')
+    app_version = None
+    if runtime == 'openclaw':
+        tools['openclaw'] = shutil.which('openclaw')
+        if not tools['openclaw']:
+            blockers.append('Missing required OpenClaw CLI for native discovery')
+        else:
+            try:
+                result = subprocess.run([tools['openclaw'], '--version'],
+                                        capture_output=True, text=True, timeout=10, check=True)
+                version = result.stdout.strip()
+                if not re.fullmatch(r'OpenClaw [0-9]+\.[0-9]+\.[0-9]+[^\r\n]*', version):
+                    raise ValueError('Unrecognized OpenClaw version output')
+                app_version = version
+                versions['openclaw'] = version
+            except (ValueError, OSError, subprocess.SubprocessError) as e:
+                blockers.append('OpenClaw CLI version probe failed: ' + str(e))
     writable = False
     try:
         with tempfile.TemporaryFile(dir=project) as f:
@@ -109,7 +125,7 @@ def preflight(args):
             'os': platform.system(), 'architecture': platform.machine(),
             'python': platform.python_version(), 'runtime': runtime,
             'observedRuntime': observed, 'claudeCodeEntrypoint': os.environ.get('CLAUDE_CODE_ENTRYPOINT'),
-            'appVersion': None, 'runtimeEvidence': 'explicit caller context' if args.runtime else 'environment marker',
+            'appVersion': app_version, 'runtimeEvidence': 'explicit caller context' if args.runtime else 'environment marker',
             'project': str(project), 'projectWritable': writable, 'tools': tools, 'toolVersions': versions,
             'qrBackend': 'qrencode' if tools['qrencode'] else ('python-qrcode' if importlib.util.find_spec('qrcode') else 'missing; local QR backend needed before handoff'),
             'blockers': blockers, 'notChecked': ['network/SSH authorization', 'browser/login/downloads', 'PDF readers (optional, task-specific)']}
@@ -130,7 +146,7 @@ def prepare(args):
     if args.runtime and detect_runtime() and args.runtime != detect_runtime():
         raise ValueError('Explicit runtime conflicts with environment evidence')
     if runtime not in RUNTIMES:
-        raise ValueError('Active runtime ambiguous; specify --runtime codex or claude-code (not generic Claude chat/Cowork)')
+        raise ValueError('Active runtime ambiguous; specify --runtime codex, claude-code or openclaw from actual host evidence')
     configured_repo = PUBLISHER['owner'] + '/' + PUBLISHER['customerRepositoryPrefix'] + customer
     repo = old.get('repository')
     if repo and repo != configured_repo:

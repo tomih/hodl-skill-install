@@ -186,8 +186,8 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(i,'apply',side_effect=interleave): i.install(self.args)
         i.install(other)
         state=json.loads((self.project/'.hodl/install-state.json').read_text())
-        self.assertEqual(set(state['runtimes']),set(i.TARGETS))
-        for runtime in i.TARGETS:
+        self.assertEqual(set(state['runtimes']),{'codex', 'claude-code'})
+        for runtime in ('codex', 'claude-code'):
             self.assertEqual(len(acceptance.resume(self.project,runtime)['pending']),1)
 
     def test_candidate_tamper_between_validation_and_stage(self):

@@ -16,7 +16,7 @@ class InstallTests(unittest.TestCase):
         self.source = self.bundle / 'skills/ebonitete'
         self.source.mkdir(parents=True)
         (self.source / 'SKILL.md').write_text('---\nname: ebonitete\ndescription: Preflight\n---\nPreflight only')
-        self.m = {'schemaVersion':1, 'bundleVersion':'0.2.0', 'customer':'demo', 'repository':'example/hodl-client-demo', 'supportedRuntimes':['codex','claude-code'], 'adapter':'project-standalone-skill', 'skills':[{'id':'ebonitete', 'version':'0.1.2', 'source':'skills/ebonitete', 'destinations':{r:p+'/ebonitete' for r,p in i.TARGETS.items()}}], 'files':{'skills/ebonitete/SKILL.md':hashlib.sha256((self.source/'SKILL.md').read_bytes()).hexdigest()}}
+        self.m = {'schemaVersion':1, 'bundleVersion':'0.2.0', 'customer':'demo', 'repository':'example/hodl-client-demo', 'supportedRuntimes':list(i.TARGETS), 'adapter':'project-standalone-skill', 'skills':[{'id':'ebonitete', 'version':'0.1.2', 'source':'skills/ebonitete', 'destinations':{r:p+'/ebonitete' for r,p in i.TARGETS.items()}}], 'files':{'skills/ebonitete/SKILL.md':hashlib.sha256((self.source/'SKILL.md').read_bytes()).hexdigest()}}
         self.save_manifest()
         self.key = self.root/'fixture.pub'
         self.key.write_text('ssh-ed25519 '+base64.b64encode(b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20'+bytes(32)).decode())

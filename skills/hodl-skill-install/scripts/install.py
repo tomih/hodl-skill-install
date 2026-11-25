@@ -13,7 +13,7 @@ import shutil
 from bootstrap import public_key
 from lifecycle import apply, read_state, digest, project_operation
 
-TARGETS = {'codex': '.agents/skills', 'claude-code': '.claude/skills'}
+from adapters import TARGETS
 SKILL_ID = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
 RESERVED_IDS = {'con', 'prn', 'aux', 'nul', *(f'{prefix}{n}' for prefix in ('com', 'lpt') for n in range(1, 10))}
 VERSION = re.compile(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?')

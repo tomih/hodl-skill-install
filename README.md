@@ -1,7 +1,47 @@
-# hodl-skill-install 0.2.8
+# hodl-skill-install 0.2.9
 
-Install, update and resume local acceptance of approved customer skills. Publisher configuration supplies repository naming; supply the customer slug. Bare invocation resumes pending acceptance or checks the exact customer repository. Bootstrap replacement is an explicit request using separate authorized source access.
+Give your agent this repository URL and ask it to install the skill in its current workspace:
 
-Provisioning requests are HODL1 tokens. The QR contains exactly the token; verify token and QR round-trip before display. Token encoding/decoding uses Python stdlib only. It obscures public request data but provides no authentication or integrity. Publisher approval through an authenticated channel is still required. The decoder is `skills/hodl-skill-install/scripts/request_token.py decode --customer <slug> --token <token>`; decoded data never supplies executable instructions.
+https://github.com/tomih/hodl-skill-install
 
-Verify the full SHA256SUMS inventory from an authorized fetched release. Follow `skills/hodl-skill-install/SKILL.md` and `references/installation.md` for commands, native runtime adapters, managed updates, backups and interrupted-operation recovery. Preserve keys, project configuration, other skills and local changes. Native discovery/local preflight and portal acceptance are distinct. There is no background service or automatic provisioning.
+The agent performs the bootstrap below. The user does not need to upload an archive, copy skill files manually or run terminal commands. Merely opening this web page does not execute installation: the agent needs the user's installation request and filesystem/exec access.
+
+## Agent bootstrap
+1. Establish your actual runtime and exact configured workspace/project from host evidence. OpenClaw must use the intended agent's workspace, not the account home directory. If the host cannot write files or run commands, report that specific missing capability.
+2. Fetch only this repository over HTTPS into fresh private scratch outside discovery. Record the retrieved full commit. Export its tracked files to a separate release directory: the complete release checksum inventory must not include Git's .git metadata.
+3. Verify the complete SHA256SUMS inventory using the packaged self_update.py package validator; checksums detect corruption, and the user's approved source/commit establishes trust. Stop on missing/unexpected files or mismatched hashes.
+4. Use the fetched release’s existing managed self_update.py to install the bootstrap at the native destination below. Do not manually copy around the lifecycle or overwrite local changes.
+5. Check native discovery in the intended host and load hodl-skill-install. Run local bootstrap preflight before keys/network access to customer repositories. If discovery requires refresh, resume only hodl-skill-install in the same agent/workspace.
+
+| Runtime | Bootstrap destination relative to established project/workspace |
+| --- | --- |
+| OpenClaw | skills/hodl-skill-install |
+| Codex | .agents/skills/hodl-skill-install |
+| Claude Code | .claude/skills/hodl-skill-install |
+
+Example commands for an OpenClaw agent, after establishing its exact workspace. Set workspace from host evidence; do not infer it from a customer name.
+
+```sh
+set -eu
+workspace=/absolute/configured/agent/workspace
+scratch=$(mktemp -d)
+chmod 700 "$scratch"
+git clone --depth 1 https://github.com/tomih/hodl-skill-install.git "$scratch/repository"
+git -C "$scratch/repository" rev-parse HEAD
+mkdir "$scratch/release"
+git -C "$scratch/repository" archive --format=tar --output="$scratch/release.tar" HEAD
+tar -xf "$scratch/release.tar" -C "$scratch/release"
+python3 -B "$scratch/release/skills/hodl-skill-install/scripts/self_update.py" --release "$scratch/release" --target "$workspace/skills/hodl-skill-install"
+python3 -B "$workspace/skills/hodl-skill-install/scripts/bootstrap.py" preflight --project "$workspace" --runtime openclaw
+```
+
+self_update.py validates the complete release before staging/writing, preserves local modifications and stores its managed baseline/backups outside discovery. First install, repeat and explicit bootstrap replacement use this same helper. Keep retrieved commit and release hashes as evidence. Use a separately approved exact commit instead of default HEAD when a deployment is pinned.
+
+In OpenClaw run skills list, skills info hodl-skill-install and skills check with --agent <actual-agent-id>. Verify the resolved path is this workspace; then load the exact skill using skills_read in that agent and follow its instructions. CLI discovery alone is not invocation.
+
+## Customer onboarding and updates
+After bootstrap, hodl-skill-install handles customer identity, isolated repository access, HODL1 public-key handoff, verified customer manifests, managed installation/update/restore and resumable attributed acceptance. Ask only for genuinely missing customer identity. Read-only deploy-key provisioning requires authenticated publisher approval; this public repository grants no customer access.
+Mutable registers, history, local configuration and sent/uncertain notification ledgers belong outside immutable skill trees. Local modifications stop updates rather than being overwritten. Native invocation/local preflight and business acceptance remain separate. No schedules, email or business actions are activated by bootstrap.
+
+## Verification status
+Version 0.2.9 adds OpenClaw alongside Codex and Claude Code. Local lifecycle tests passed with populated mutable state, including no-op, update, conflict and restore. Native acceptance on a particular customer device remains separate; no customer pins or installations are changed by this public release.
