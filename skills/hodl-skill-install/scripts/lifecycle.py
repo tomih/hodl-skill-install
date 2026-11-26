@@ -36,6 +36,14 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def acceptance_complete(record):
+    """Legacy harmless acceptance or preflight bound to a successful setup attempt."""
+    evidence = record.get('acceptance')
+    setup = record.get('localSetup')
+    return bool(evidence) and (not setup or
+        (setup.get('status') == 'succeeded' and evidence.get('setupAttempt') == setup.get('attempt')))
+
+
 def read_state(path):
     if path.is_symlink():
         raise ValueError('Symlinked lifecycle state')

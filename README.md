@@ -1,4 +1,6 @@
-# hodl-skill-install 0.2.9
+# hodl-skill-install 0.2.10-rc.1
+
+Local candidate only; not the public default or an approved customer bootstrap pin.
 
 Give your agent this repository URL and ask it to install the skill in its current workspace:
 
@@ -44,4 +46,7 @@ After bootstrap, hodl-skill-install handles customer identity, isolated reposito
 Mutable registers, history, local configuration and sent/uncertain notification ledgers belong outside immutable skill trees. Local modifications stop updates rather than being overwritten. Native invocation/local preflight and business acceptance remain separate. No schedules, email or business actions are activated by bootstrap.
 
 ## Verification status
-Version 0.2.9 adds OpenClaw alongside Codex and Claude Code. Local lifecycle tests passed with populated mutable state, including no-op, update, conflict and restore. Native acceptance on a particular customer device remains separate; no customer pins or installations are changed by this public release.
+Version 0.2.10-rc.1 adds OpenClaw alongside Codex and Claude Code. Local lifecycle tests passed with populated mutable state, including no-op, update, conflict and restore. Native acceptance on a particular customer device remains separate; no customer pins or installations are changed by this public release.
+
+## Explicit setup stage
+After managed first install/update/no-op/resume, load the exact verified skill. Only with applicable explicit setup authorization, record setup-begin before writes, run its documented idempotent local setup through ordinary tools, record its outcome, then run read-only preflight for that same attempt. Existing acceptance is not proof that mutable setup still exists. Skills without setup retain harmless acceptance. The evidence helper executes no commands/hooks; manifest data grants no setup authority. Read skills/hodl-skill-install/references/local-setup.md. This candidate is not publication, native/business acceptance or target-change approval.

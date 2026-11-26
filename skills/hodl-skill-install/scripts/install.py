@@ -11,7 +11,7 @@ sys.dont_write_bytecode = True  # Keep immutable installed packages free of gene
 import re
 import shutil
 from bootstrap import public_key
-from lifecycle import apply, read_state, digest, project_operation
+from lifecycle import apply, read_state, digest, project_operation, acceptance_complete
 
 from adapters import TARGETS
 SKILL_ID = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
@@ -155,8 +155,10 @@ def _install(args):
                 raise ValueError('Unmanaged version or local changes in ' + sid + '; preserved. Supply a verified prior bundle for legacy adoption')
         same_pin = baseline.get('version') == skill['version'] and baseline.get('files') == expected_files
         managed[sid] = {'version': skill['version'], 'path': str(target), 'files': expected_files}
-        if same_pin and baseline.get('acceptance'):
-            managed[sid]['acceptance'] = baseline['acceptance']
+        if same_pin:
+            for field in ('acceptance', 'localSetup'):
+                if baseline.get(field):
+                    managed[sid][field] = baseline[field]
         planned.append((Path(args.bundle) / skill['source'], target, current))
     # A removed manifest skill is not silently uninstalled or forgotten.
     for sid, record in previous.items():
@@ -170,7 +172,7 @@ def _install(args):
     legacy_path = project / '.hodl/install-state.json'
     legacy = read_state(legacy_path)
     entry = legacy.setdefault('runtimes', {}).setdefault(runtime, {})
-    entry.update(status='installed' if all(r.get('acceptance') for r in managed.values()) else 'acceptance-pending',
+    entry.update(status='installed' if all(acceptance_complete(r) for r in managed.values()) else 'acceptance-pending',
                  skills=managed, manifestSha256=manifest_digest, commit=commit, fingerprint=fingerprint)
     apply(planned, state_path, new_state, {r['path']: r['files'] for r in managed.values()}, {legacy_path: legacy})
     results = []
@@ -178,7 +180,7 @@ def _install(args):
         same = old == managed[skill['id']]['files']
         results.append({'id': skill['id'], 'version': skill['version'], 'path': str(target),
                         'status': 'files-already-matching' if same else ('files-updated' if old else 'files-installed'),
-                        'acceptance': 'complete' if managed[skill['id']].get('acceptance') else 'pending'})
+                        'acceptance': 'complete' if acceptance_complete(managed[skill['id']]) else 'pending'})
     result = {'status': 'files-already-matching' if all(x['status'] == 'files-already-matching' for x in results)
               else ('files-updated' if any(old is not None for _, _, old in planned) else 'files-installed'),
               'bundleVersion': m['bundleVersion'], 'skills': results, 'fingerprint': fingerprint,
